@@ -1,93 +1,92 @@
-# Docker Compose Configuration for Dremio, MinIO, Nessie, Postgres, and MongoDB
+## Docker Compose Documentation
 
-This Docker Compose file sets up a local environment for running Dremio, MinIO, Nessie, Postgres, and MongoDB services. It creates a shared network for all services, along with defined ports and environment configurations. 
-
-## Services Overview
+This Docker Compose file defines several services for a local development environment. The setup includes the following services:
 
 ### 1. **Dremio**
-   - **Image**: `dremio/dremio-oss:latest`
-   - **Container Name**: `dremio`
-   - **Ports**:
-     - `9047:9047`: Dremio Web UI
-     - `31010:31010`: Dremio JDBC/ODBC communication
-     - `32010:32010`: Dremio Arrow Flight communication
-     - `45678:45678`: Dremio internal communication
-   - **Environment**:
-     - `DREMIO_JAVA_SERVER_EXTRA_OPTS`: Extra JVM options for Dremio. Sets the `paths.dist` directory for Dremio to `/opt/dremio/data/dist`.
-   - **Depends on**:
-     - `minio`: Object storage service for Dremio to access.
-     - `nessie`: Versioned data lake storage.
-     - `postgres`: Used as the backend database for Nessie.
-     - `mongo`: NoSQL database that Dremio can query.
-   - **Network**: `mongo-postgres-dremio`.
+- **Image**: `dremio/dremio-oss:latest`
+- **Container Name**: `dremio`
+- **Ports**:
+  - 9047: Web UI
+  - 31010: ODBC/Arrow Flight
+  - 32010: JDBC
+  - 45678: Internal services
+- **Environment Variables**:
+  - `DREMIO_JAVA_SERVER_EXTRA_OPTS`: Path to Dremio distribution files.
+- **Network**: `dremio-notebook`
 
-### 2. **MinIO**
-   - **Image**: `minio/minio`
-   - **Container Name**: `minio`
-   - **Environment**:
-     - `MINIO_ROOT_USER`: Sets the MinIO admin username to `admin`.
-     - `MINIO_ROOT_PASSWORD`: Sets the MinIO admin password to `password`.
-   - **Command**:
-     - Runs the MinIO server and creates buckets `datalake` and `datalakehouse` using the MinIO client (`mc`).
-   - **Ports**:
-     - `9000:9000`: MinIO S3 API endpoint.
-     - `9001:9001`: MinIO web console.
-   - **Healthcheck**:
-     - A health check is configured to ensure that the MinIO service is running properly, checking the MinIO health endpoint.
-     - **Interval**: 30 seconds.
-     - **Timeout**: 20 seconds.
-     - **Retries**: 3.
-   - **Volumes**: No volumes defined, data is stored inside the container.
-   - **Network**: `mongo-postgres-dremio`.
+### 2. **Spark**
+- **Image**: `alexmerced/spark35nb:latest`
+- **Ports**:
+  - 8080: Spark Master Web UI
+  - 7077: Spark Master job submission port
+  - 8081: Worker Web UI
+  - 4040-4045: Spark job UIs for concurrent jobs
+  - 18080: Spark History Server
+  - 8888: Jupyter Notebook
+- **Environment Variables**:
+  - `AWS_REGION`: AWS region for access.
+  - `AWS_ACCESS_KEY_ID`: Minio username.
+  - `AWS_SECRET_ACCESS_KEY`: Minio password.
+  - `SPARK_MASTER_HOST`: Spark master hostname.
+  - Other Spark-related configurations.
+- **Volumes**: 
+  - Maps local seed data to the `/workspace/seed-data` directory.
+- **Entry Point**: Runs Spark services, History Server, and Jupyter Notebook on container startup.
+- **Network**: `dremio-notebook`
 
-### 3. **Nessie**
-   - **Image**: `projectnessie/nessie`
-   - **Container Name**: `nessie`
-   - **Environment**:
-     - `QUARKUS_PROFILE`: Configures Nessie to use the `postgres` profile.
-     - `QUARKUS_DATASOURCE_JDBC_URL`: Configures the connection to the Postgres instance using the URL `jdbc:postgresql://postgres:5432/nessie`.
-     - `QUARKUS_DATASOURCE_USERNAME`: Nessie connects to Postgres using the `nessie` user.
-     - `QUARKUS_DATASOURCE_PASSWORD`: Password for the `nessie` user in Postgres is set to `nessie`.
-   - **Ports**:
-     - `19120:19120`: Exposes the Nessie API on port 19120.
-   - **Depends on**:
-     - `postgres`: Nessie depends on Postgres for storing metadata.
-   - **Network**: `mongo-postgres-dremio`.
+### 3. **Minio**
+- **Image**: `minio/minio`
+- **Container Name**: `minio`
+- **Ports**:
+  - 9000: Minio server
+  - 9001: Minio console
+- **Environment Variables**:
+  - `MINIO_ROOT_USER`: Admin username.
+  - `MINIO_ROOT_PASSWORD`: Admin password.
+  - `MINIO_REGION`: Set region for Minio.
+- **Healthcheck**: Ensures Minio is healthy with a live check on port 9000.
+- **Volumes**:
+  - Maps local seed data to the `/minio-data` directory.
+- **Entry Point**: Starts Minio server, configures Minio client (mc), creates necessary buckets, and copies seed data.
+- **Network**: `dremio-notebook`
 
-### 4. **Postgres**
-   - **Image**: `postgres:13`
-   - **Container Name**: `postgres`
-   - **Environment**:
-     - `POSTGRES_USER`: Sets the username for the Postgres database to `nessie`.
-     - `POSTGRES_PASSWORD`: Sets the password for the `nessie` user to `nessie`.
-     - `POSTGRES_DB`: Creates a database named `nessie`.
-   - **Ports**:
-     - `5435:5432`: Exposes the Postgres database on port 5435 of the host (mapped from 5432 of the container).
-   - **Volumes**:
-     - Mounts the local directory `./seed/postgres` to `/docker-entrypoint-initdb.d/` for seeding the Postgres database with initial data.
-   - **Network**: `mongo-postgres-dremio`.
+### 4. **Nessie**
+- **Image**: `projectnessie/nessie:latest`
+- **Container Name**: `nessie`
+- **Ports**:
+  - 19120: Nessie API
+- **Environment Variables**:
+  - Configures Nessie for production profile, logging, and RocksDB storage backend.
+- **Network**: `dremio-notebook`
 
-### 5. **MongoDB**
-   - **Image**: `mongo:4.4`
-   - **Container Name**: `mongo`
-   - **Environment**:
-     - `MONGO_INITDB_ROOT_USERNAME`: Sets the MongoDB root username to `root`.
-     - `MONGO_INITDB_ROOT_PASSWORD`: Sets the MongoDB root password to `example`.
-   - **Ports**:
-     - `27017:27017`: Exposes the MongoDB service on the default MongoDB port.
-   - **Volumes**:
-     - Mounts the local directory `./seed/mongo` to `/docker-entrypoint-initdb.d/` for seeding the MongoDB database with initial data.
-   - **Network**: `mongo-postgres-dremio`.
+### 5. **Postgres**
+- **Image**: `postgres:13`
+- **Container Name**: `postgres`
+- **Ports**:
+  - 5435: PostgreSQL database
+- **Environment Variables**:
+  - `POSTGRES_USER`: Username for the Postgres database.
+  - `POSTGRES_PASSWORD`: Password for the Postgres database.
+  - `POSTGRES_DB`: Default database name.
+- **Volumes**:
+  - Seeds the database using SQL files from the local directory.
+- **Network**: `dremio-notebook`
 
-## Networks
+### 6. **Mongo**
+- **Image**: `mongo:4.4`
+- **Container Name**: `mongo`
+- **Ports**:
+  - 27017: MongoDB
+- **Environment Variables**:
+  - `MONGO_INITDB_ROOT_USERNAME`: Root username for MongoDB.
+  - `MONGO_INITDB_ROOT_PASSWORD`: Root password for MongoDB.
+- **Volumes**:
+  - Seeds MongoDB using initialization scripts from the local directory.
+- **Network**: `dremio-notebook`
 
-- **mongo-postgres-dremio**: A custom bridge network that connects all services. It allows communication between the Dremio, MinIO, Nessie, Postgres, and MongoDB containers.
+### Networks
+- A custom network `dremio-notebook` is created to ensure inter-service communication.
 
-## Volumes
-
-- **minio-data**: A volume where MinIO stores its object data (defined but not used explicitly in this compose file).
-- **postgres-data**: A volume where Postgres stores its database data (not explicitly defined in this compose file).
-- **mongo-data**: A volume where MongoDB stores its database data (not explicitly defined in this compose file).
 
 ## Running the Services
 
@@ -97,13 +96,18 @@ To start the services, run the following command:
 docker-compose up -d
 ```
 
-This command will start all the containers in detached mode. Once running, you can access the following:
+Running this command will start all the containers in detached mode. Once all the services are up and running, you can access the following:
 
-- Dremio UI: http://localhost:9047
-- MinIO Console: http://localhost:9001
-- Nessie API: http://localhost:19120
-- Postgres: Available on port 5435
-- MongoDB: Available on port 27017
+- **Dremio UI**: Accessible at [http://localhost:9047](http://localhost:9047)
+- **MinIO Console**: Accessible at [http://localhost:9001](http://localhost:9001)
+- **Nessie API**: Accessible at [http://localhost:19120](http://localhost:19120)
+- **Postgres**: Available on port `5435`
+- **MongoDB**: Available on port `27017`
+- **Spark Master Web UI**: Accessible at [http://localhost:8080](http://localhost:8080)
+- **Spark Worker Web UI**: Accessible at [http://localhost:8081](http://localhost:8081)
+- **Spark History Server**: Accessible at [http://localhost:18080](http://localhost:18080)
+- **Jupyter Notebook**: Accessible at [http://localhost:8888](http://localhost:8888)
+
 
 ## Stopping the Services
 
@@ -215,9 +219,9 @@ Dremio natively supports PostgreSQL, making it easy to connect to a Postgres ins
    - **Name**: Give your Postgres source a name (e.g., `postgres_nessie`).
    - **Hostname**: Enter `postgres` (or `postgres` if referencing the Docker container name).
    - **Port**: Enter `5432`.
-   - **Database**: Enter `nessie` (the database name set in your Docker Compose environment variables).
-   - **Username**: Enter `nessie` (the Postgres user defined in your Docker Compose environment).
-   - **Password**: Enter `nessie` (the Postgres password defined in your Docker Compose environment).
+   - **Database**: Enter `mydatabase` (the database name set in your Docker Compose environment variables).
+   - **Username**: Enter `admin` (the Postgres user defined in your Docker Compose environment).
+   - **Password**: Enter `password` (the Postgres password defined in your Docker Compose environment).
 
 5. **Click Save**: After filling in the details, click **Save**. You can now query data stored in your Postgres database from Dremio.
 
@@ -243,8 +247,8 @@ MongoDB is a NoSQL database, and Dremio has native support for MongoDB connectio
    - **Host**: Enter `mongo` (or `mongo` if referencing the Docker container name).
    - **Port**: Enter `27017` (the default MongoDB port).
    - **Authentication**: If MongoDB is set to require authentication, enable authentication and fill in the following:
-     - **Username**: `root` (as per your Docker Compose configuration).
-     - **Password**: `example` (as per your Docker Compose configuration).
+     - **Username**: `admin` (as per your Docker Compose configuration).
+     - **Password**: `password` (as per your Docker Compose configuration).
      - **Authentication Database**: `admin` (the default MongoDB authentication database).
    - **Database**: Specify the default database to connect to (or leave it blank to list all databases).
 

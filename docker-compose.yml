@@ -11,13 +11,44 @@ services:
       - 45678:45678
     environment:
       - DREMIO_JAVA_SERVER_EXTRA_OPTS=-Dpaths.dist=file:///opt/dremio/data/dist
-    depends_on:
-      - minio
-      - nessie
-      - postgres
-      - mongo
     networks:
-      mongo-postgres-dremio:
+      dremio-notebook:
+
+  spark:
+    platform: linux/x86_64
+    image: alexmerced/spark35nb:latest
+    ports: 
+      - 8080:8080    # Master Web UI
+      - 7077:7077    # Master Port for job submissions
+      - 8081:8081    # Worker Web UI
+      - 4040-4045:4040-4045  # Additional Spark job UI ports for more jobs
+      - 18080:18080  # Spark History Server
+      - 8888:8888    # Jupyter Notebook
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=admin  # Minio username
+      - AWS_SECRET_ACCESS_KEY=password  # Minio password
+      - SPARK_MASTER_HOST=spark
+      - SPARK_MASTER_PORT=7077
+      - SPARK_MASTER_WEBUI_PORT=8080
+      - SPARK_WORKER_WEBUI_PORT=8081
+      - SPARK_HISTORY_OPTS=-Dspark.history.fs.logDirectory=/tmp/spark-events
+      - SPARK_HOME=/opt/spark  # Set SPARK_HOME explicitly
+    volumes:
+      - ./seed/notebook-seed:/workspace/seed-data  # Volume for seeding data into the container
+    container_name: spark
+    entrypoint: >
+      /bin/bash -c "
+      pip install streamlit && \
+      /opt/spark/sbin/start-master.sh && \
+      /opt/spark/sbin/start-worker.sh spark://$(hostname):7077 && \
+      mkdir -p /tmp/spark-events && \
+      start-history-server.sh && \
+      jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token='' --NotebookApp.password='' && \
+      tail -f /dev/null
+      "
+    networks:
+      dremio-notebook:
 
   minio:
     image: minio/minio
@@ -25,7 +56,9 @@ services:
     environment:
       - MINIO_ROOT_USER=admin
       - MINIO_ROOT_PASSWORD=password
-    command: server /data --console-address ":9001"
+      - MINIO_DOMAIN=minio
+      - MINIO_REGION_NAME=us-east-1
+      - MINIO_REGION=us-east-1
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -34,6 +67,8 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    volumes:
+      - ./seed/minio-data:/minio-data  # Mount the local folder to container
     entrypoint: >
       /bin/sh -c "
       minio server /data --console-address ':9001' &
@@ -41,39 +76,42 @@ services:
       mc alias set myminio http://localhost:9000 admin password;
       mc mb myminio/datalake;
       mc mb myminio/datalakehouse;
-      tail -f /dev/null
-      "
+      mc mb myminio/warehouse;
+      mc mb myminio/seed;
+      mc cp /minio-data/* myminio/seed/;
+      tail -f /dev/null"
     networks:
-      mongo-postgres-dremio:
+      dremio-notebook:
 
   nessie:
-    image: projectnessie/nessie
+    image: projectnessie/nessie:latest
     container_name: nessie
     environment:
-      - QUARKUS_PROFILE=postgres
-      - QUARKUS_DATASOURCE_JDBC_URL=jdbc:postgresql://postgres:5432/nessie
+      - QUARKUS_PROFILE=prod
+      - QUARKUS_HTTP_PORT=19120
+      - QUARKUS_LOG_CONSOLE_FORMAT=%d{yyyy-MM-dd HH:mm:ss} %-5p [%c{1.}] (%t) %s%e%n
+      - QUARKUS_LOG_LEVEL=INFO
+      - QUARKUS_DATASOURCE_DB_KIND=rocksdb
+      - QUARKUS_DATASOURCE_JDBC_URL=jdbc:rocksdb:file:///nessie/data
       - QUARKUS_DATASOURCE_USERNAME=nessie
       - QUARKUS_DATASOURCE_PASSWORD=nessie
     ports:
-      - "19120:19120"
-    depends_on:
-      - postgres
-    networks:
-      mongo-postgres-dremio:
+      - "19120:19120"  # Expose Nessie API port
+      dremio-notebook:
 
   postgres:
     image: postgres:13
     container_name: postgres
     environment:
-      POSTGRES_USER: nessie
-      POSTGRES_PASSWORD: nessie
-      POSTGRES_DB: nessie
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mydatabase
     ports:
       - "5435:5432"
     volumes:
       - ./seed/postgres:/docker-entrypoint-initdb.d/  # Seed data directory
     networks:
-      mongo-postgres-dremio:
+      dremio-notebook:
 
   mongo:
     image: mongo:4.4
@@ -83,10 +121,10 @@ services:
     volumes:
       - ./seed/mongo:/docker-entrypoint-initdb.d/  # Seed data directory
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: example
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
     networks:
-      mongo-postgres-dremio:
+      dremio-notebook:
 
 networks:
-  mongo-postgres-dremio:
+  dremio-notebook:
