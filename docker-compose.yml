@@ -42,7 +42,7 @@ services:
       /bin/bash -c "
       pip install streamlit && \
       /opt/spark/sbin/start-master.sh && \
-      /opt/spark/sbin/start-worker.sh spark://$(hostname):7077 && \
+      /opt/spark/sbin/start-worker.sh spark://localhost:7077 && \
       mkdir -p /tmp/spark-events && \
       start-history-server.sh && \
       jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token='' --NotebookApp.password='' && \
@@ -98,6 +98,7 @@ services:
       - QUARKUS_DATASOURCE_PASSWORD=nessie
     ports:
       - "19120:19120"  # Expose Nessie API port
+    networks:
       dremio-notebook:
 
   postgres:
