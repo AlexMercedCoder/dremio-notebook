@@ -24,6 +24,7 @@ services:
       - 4040-4045:4040-4045  # Additional Spark job UI ports for more jobs
       - 18080:18080  # Spark History Server
       - 8888:8888    # Jupyter Notebook
+      - 8501:8501 # For Streamlit Apps
     environment:
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=admin  # Minio username
