@@ -40,7 +40,7 @@ services:
     container_name: spark
     entrypoint: >
       /bin/bash -c "
-      pip install streamlit && \
+      pip install streamlit python-dotenv && \
       /opt/spark/sbin/start-master.sh && \
       /opt/spark/sbin/start-worker.sh spark://localhost:7077 && \
       mkdir -p /tmp/spark-events && \
